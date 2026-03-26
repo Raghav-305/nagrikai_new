@@ -1,0 +1,147 @@
+const Complaint = require("../models/Complaint");
+
+// Map AI department names to standard departments
+const departmentMap = {
+  "Roads & Bridges PWD": "Infrastructure",
+  "Water & Power Board": "Utility",
+  "Traffic & Public Safety": "Public Safety",
+  "Sanitation & Parks": "Environment",
+};
+
+// Helper to get all variants of a department name for querying
+const getDepartmentVariants = (dept) => {
+  const variants = [dept];
+  // If it's a standard name, also add the old names
+  Object.entries(departmentMap).forEach(([old, standardized]) => {
+    if (standardized === dept) {
+      variants.push(old);
+    }
+  });
+  return variants;
+};
+
+exports.getDepartmentComplaints = async (req, res) => {
+  try {
+    const { status, priority, page = 1, limit = 10 } = req.query;
+
+    const filter = {};
+    
+    // For officers: automatically filter by their department
+    // For admins: can see all departments
+    if (req.user.role === "officer") {
+      const variants = getDepartmentVariants(req.user.department);
+      filter.department = { $in: variants };
+    }
+    
+    if (status) filter.status = status;
+    if (priority) filter.priority = priority;
+
+    // Log for debugging
+    console.log(`[${req.user.role}] ${req.user.email} fetching complaints for department:`, req.user.department);
+
+    const skip = (page - 1) * limit;
+
+    const complaints = await Complaint.find(filter)
+      .populate("assignedTo", "name email")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Complaint.countDocuments(filter);
+
+    res.json({
+      success: true,
+      count: complaints.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit),
+      complaints
+    });
+  } catch (err) {
+    console.error("Get department complaints error:", err);
+    res.status(500).json({ msg: "Failed to fetch complaints", error: err.message });
+  }
+};
+
+exports.updateComplaintStatus = async (req, res) => {
+  try {
+    const { status, note } = req.body;
+
+    if (!status || !["pending", "in-progress", "resolved"].includes(status)) {
+      return res.status(400).json({ msg: "Invalid status" });
+    }
+
+    const complaint = await Complaint.findById(req.params.id);
+
+    if (!complaint) {
+      return res.status(404).json({ msg: "Complaint not found" });
+    }
+
+    if (complaint.department !== req.user.department) {
+      return res.status(403).json({ msg: "Not authorized to update this complaint" });
+    }
+
+    complaint.status = status;
+    complaint.updatedAt = Date.now();
+
+    // Add department note if provided
+    if (note) {
+      complaint.department_notes.push({
+        officer: req.user.id,
+        note,
+        timestamp: Date.now()
+      });
+    }
+
+    // Set resolved timestamp if status is resolved
+    if (status === "resolved") {
+      complaint.resolvedAt = Date.now();
+    }
+
+    await complaint.save();
+
+    res.json({
+      success: true,
+      msg: "Complaint status updated",
+      complaint
+    });
+  } catch (err) {
+    console.error("Update complaint error:", err);
+    res.status(500).json({ msg: "Failed to update complaint", error: err.message });
+  }
+};
+
+exports.assignComplaint = async (req, res) => {
+  try {
+    const { assignedTo } = req.body;
+
+    if (!assignedTo) {
+      return res.status(400).json({ msg: "Officer ID is required" });
+    }
+
+    const complaint = await Complaint.findById(req.params.id);
+
+    if (!complaint) {
+      return res.status(404).json({ msg: "Complaint not found" });
+    }
+
+    if (complaint.department !== req.user.department) {
+      return res.status(403).json({ msg: "Not authorized" });
+    }
+
+    complaint.assignedTo = assignedTo;
+    complaint.status = "in-progress";
+    complaint.updatedAt = Date.now();
+
+    await complaint.save();
+
+    res.json({
+      success: true,
+      msg: "Complaint assigned",
+      complaint
+    });
+  } catch (err) {
+    console.error("Assign complaint error:", err);
+    res.status(500).json({ msg: "Failed to assign complaint", error: err.message });
+  }
+};

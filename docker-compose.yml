@@ -1,0 +1,84 @@
+version: '3.9'
+
+services:
+  # Node.js/Express Backend
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: nagrik-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/nagrik}
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret}
+      - AI_SERVER_URL=http://ai-server:7860
+      - AI_SERVER_TOKEN=${AI_SERVER_TOKEN:-your-secret-token}
+    depends_on:
+      - mongo
+      - ai-server
+    networks:
+      - nagrik-network
+    restart: unless-stopped
+
+  # Python AI Orchestrator
+  ai-server:
+    build:
+      context: ./ai_server
+      dockerfile: Dockerfile
+    container_name: nagrik-ai-server
+    ports:
+      - "7860:7860"
+    environment:
+      - INTERNAL_SECRET_TOKEN=${AI_SERVER_TOKEN:-your-secret-token}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    networks:
+      - nagrik-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # MongoDB Database
+  mongo:
+    image: mongo:7.0
+    container_name: nagrik-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-password}
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    networks:
+      - nagrik-network
+    restart: unless-stopped
+
+  # Frontend (React/Vite)
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: nagrik-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://backend:5000
+    depends_on:
+      - backend
+    networks:
+      - nagrik-network
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  mongo_config:
+
+networks:
+  nagrik-network:
+    driver: bridge
