@@ -15,6 +15,10 @@ const complaintSchema = new mongoose.Schema({
     type: String,
     required: [true, "Image is required"]
   },
+  imagePublicId: {
+    type: String,
+    default: null
+  },
   ticket_id: {
     type: String,
     unique: true,
@@ -23,6 +27,15 @@ const complaintSchema = new mongoose.Schema({
   department: {
     type: String,
     required: [true, "Department is required"]
+  },
+  location: {
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    accuracy: { type: Number, default: null },
+    label: { type: String, default: null },
+    source: { type: String, default: null },
+    capturedAt: { type: Date, default: null },
+    mapUrl: { type: String, default: null }
   },
   priority: {
     type: String,
@@ -65,6 +78,20 @@ const complaintSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
     description: "Whether complaint was processed by AI orchestrator"
+  },
+  ai_summary: {
+    problemDefinition: { type: String, default: null },
+    severity: { type: String, default: null },
+    reason: { type: String, default: null },
+    conclusion: { type: String, default: null },
+    actionPlanText: { type: String, default: null },
+    actionPlanSteps: {
+      type: [{
+        label: String,
+        detail: String
+      }],
+      default: []
+    }
   },
   deadline: {
     type: String,

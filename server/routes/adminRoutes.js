@@ -2,6 +2,7 @@ const express = require('express');
 const {
   getAllUsers,
   getDashboardStats,
+  getAllComplaints,
   deleteUser,
   updateUserRole,
 } = require('../controllers/adminController');
@@ -14,6 +15,7 @@ router.use(protect, allowRoles('admin'));
 
 router.get('/users', getAllUsers);
 router.get('/stats', getDashboardStats);
+router.get('/complaints', getAllComplaints);
 router.delete('/users/:id', deleteUser);
 router.put('/users/:id/role', updateUserRole);
 

@@ -6,6 +6,7 @@ const ComplaintsList = () => {
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
 
   useEffect(() => {
     fetchComplaints();
@@ -49,6 +50,39 @@ const ComplaintsList = () => {
     return <div className="loading"><div className="spinner"></div>Loading...</div>;
   }
 
+  const renderCitizenAiSummary = (complaint) => {
+    const summary = complaint.ai_summary;
+
+    if (!summary || (!summary.problemDefinition && !summary.severity && !summary.reason && !summary.conclusion)) {
+      return (
+        <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-4 text-sm text-gray-600 dark:text-gray-300">
+          AI analysis summary is not available for this complaint yet.
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-3">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400">Problem definition</div>
+          <div className="mt-1 text-sm text-gray-900 dark:text-white">{summary.problemDefinition || '-'}</div>
+        </div>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400">Severity</div>
+          <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{summary.severity || '-'}</div>
+        </div>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400">Reason</div>
+          <div className="mt-1 text-sm text-gray-900 dark:text-white">{summary.reason || '-'}</div>
+        </div>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400">Conclusion</div>
+          <div className="mt-1 text-sm text-gray-900 dark:text-white">{summary.conclusion || '-'}</div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
       <div className="container py-10 animate-fadeIn">
@@ -86,7 +120,11 @@ const ComplaintsList = () => {
             {complaints.map((complaint) => {
               const statusStyle = getStatusColor(complaint.status);
               return (
-                <div key={complaint._id} className="card card-interactive overflow-hidden animate-slideInUp">
+                <div
+                  key={complaint._id}
+                  className="card card-interactive overflow-hidden animate-slideInUp cursor-pointer"
+                  onClick={() => setSelectedComplaint(complaint)}
+                >
                   <div className="p-6">
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -151,6 +189,42 @@ const ComplaintsList = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {selectedComplaint && (
+          <div className="modal active" onClick={() => setSelectedComplaint(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Ticket</div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                    {selectedComplaint.ticket_id}
+                  </h2>
+                </div>
+                <button className="btn btn-danger" onClick={() => setSelectedComplaint(null)}>
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</div>
+                <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
+                  {selectedComplaint.text}
+                </p>
+              </div>
+
+              {selectedComplaint.image && (
+                <div className="mt-5 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+                  <img src={selectedComplaint.image} alt="Complaint" className="w-full h-[260px] object-cover" />
+                </div>
+              )}
+
+              <div className="mt-5">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mb-3">AI analysis</div>
+                {renderCitizenAiSummary(selectedComplaint)}
+              </div>
+            </div>
           </div>
         )}
       </div>

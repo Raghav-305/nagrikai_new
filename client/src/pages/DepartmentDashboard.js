@@ -6,12 +6,13 @@ const DepartmentDashboard = () => {
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState({ status: '', priority: '', department: 'Infrastructure' });
+  const [filter, setFilter] = useState({ status: '', priority: '' });
   const [selectedComplaint, setSelectedComplaint] = useState(null);
   const [noteText, setNoteText] = useState('');
   const { user } = useAuth();
-
-  const departments = ['Infrastructure', 'Utility', 'Public Safety', 'Environment'];
+  const officerDepartmentHeading = user?.department
+    ? `${user.department} Officer Dashboard`
+    : 'Officer Dashboard';
 
   useEffect(() => {
     fetchComplaints();
@@ -74,14 +75,50 @@ const DepartmentDashboard = () => {
     return map[priority] || 'bg-gray-500';
   };
 
+  const renderActionPlan = (summary) => {
+    if (!summary) {
+      return null;
+    }
+
+    if (summary.actionPlanSteps?.length > 0) {
+      return (
+        <div className="grid gap-3">
+          {summary.actionPlanSteps.map((step) => (
+            <div key={step.label} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+              <div className="text-xs text-gray-500 dark:text-gray-400">{step.label}</div>
+              <div className="mt-1 text-sm text-gray-900 dark:text-white">{step.detail}</div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (summary.actionPlanText) {
+      return (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 text-sm text-gray-900 dark:text-white">
+          {summary.actionPlanText}
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-4 text-sm text-gray-600 dark:text-gray-300">
+        No action plan available yet.
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
       <div className="container py-10 animate-fadeIn">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Department dashboard</h1>
+            <div className="inline-flex items-center rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200 px-3 py-1 text-sm font-semibold mb-3">
+              {user?.department ? `${user.department} Officer` : 'Officer'}
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">{officerDepartmentHeading}</h1>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-              Review tickets for your department, update status, and add notes for citizens.
+              Review tickets for {user?.department || 'your department'}, update status, and add notes for citizens.
             </p>
           </div>
           <button className="btn btn-gradient" onClick={fetchComplaints}>
@@ -97,14 +134,6 @@ const DepartmentDashboard = () => {
             </div>
           </div>
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-            <div className="form-group mb-0">
-              <label>Department</label>
-              <select name="department" value={filter.department} onChange={handleFilterChange}>
-                {departments.map((dept) => (
-                  <option key={dept} value={dept}>{dept}</option>
-                ))}
-              </select>
-            </div>
             <div className="form-group mb-0">
               <label>Status</label>
               <select name="status" value={filter.status} onChange={handleFilterChange}>
@@ -256,6 +285,33 @@ const DepartmentDashboard = () => {
                     rows="4"
                   />
                 </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mb-3">AI analysis</div>
+                <div className="grid gap-3">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Problem definition</div>
+                    <div className="mt-1 text-sm text-gray-900 dark:text-white">{selectedComplaint.ai_summary?.problemDefinition || '-'}</div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Severity</div>
+                    <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{selectedComplaint.ai_summary?.severity || '-'}</div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Reason</div>
+                    <div className="mt-1 text-sm text-gray-900 dark:text-white">{selectedComplaint.ai_summary?.reason || '-'}</div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Conclusion</div>
+                    <div className="mt-1 text-sm text-gray-900 dark:text-white">{selectedComplaint.ai_summary?.conclusion || '-'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Action plan</div>
+                {renderActionPlan(selectedComplaint.ai_summary)}
               </div>
 
               <div className="mt-5 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>

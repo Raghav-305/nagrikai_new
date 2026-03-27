@@ -1,6 +1,23 @@
 const User = require('../models/User');
 const Complaint = require('../models/Complaint');
 
+const buildLocationFilter = (location) => {
+  if (!location || typeof location !== 'string' || !location.trim()) {
+    return null;
+  }
+
+  const pattern = new RegExp(location.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  return {
+    $or: [
+      { 'location.label': pattern },
+      { 'location.mapUrl': pattern },
+      { text: pattern },
+      { ticket_id: pattern },
+      { department: pattern },
+    ],
+  };
+};
+
 // @desc    Get all users
 // @route   GET /api/admin/users
 // @access  Private/Admin
@@ -12,6 +29,65 @@ exports.getAllUsers = async (req, res) => {
       success: true,
       count: users.length,
       users,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Get all complaints with admin filters
+// @route   GET /api/admin/complaints
+// @access  Private/Admin
+exports.getAllComplaints = async (req, res) => {
+  try {
+    const { department, status, severity, location, page = 1, limit = 100 } = req.query;
+
+    const filter = {};
+
+    if (department && department !== 'all') {
+      filter.department = department;
+    }
+
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    if (severity && severity !== 'all') {
+      filter['ai_summary.severity'] = new RegExp(`^${severity}$`, 'i');
+    }
+
+    const locationFilter = buildLocationFilter(location);
+    if (locationFilter) {
+      Object.assign(filter, locationFilter);
+    }
+
+    const numericPage = Number(page);
+    const numericLimit = Number(limit);
+    const skip = (numericPage - 1) * numericLimit;
+
+    const complaints = await Complaint.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(numericLimit);
+
+    const total = await Complaint.countDocuments(filter);
+    const departments = await Complaint.distinct('department');
+    const severities = await Complaint.distinct('ai_summary.severity');
+
+    res.status(200).json({
+      success: true,
+      count: complaints.length,
+      total,
+      page: numericPage,
+      pages: Math.ceil(total / numericLimit),
+      filtersMeta: {
+        departments: departments.filter(Boolean).sort(),
+        severities: severities.filter(Boolean).sort(),
+      },
+      complaints,
     });
   } catch (error) {
     res.status(500).json({

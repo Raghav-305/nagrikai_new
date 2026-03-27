@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+const OFFICER_DEPARTMENTS = ['Infrastructure', 'Utility', 'Public Safety', 'Environment'];
+
 const Register = () => {
   const [formData, setFormData] = useState({
     name: '',
@@ -16,7 +18,11 @@ const Register = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+      ...(name === 'role' && value !== 'officer' ? { department: '' } : {}),
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -120,10 +126,9 @@ const Register = () => {
                     <option value="">
                       {formData.role === 'officer' ? 'Select Department' : 'Not required'}
                     </option>
-                    <option value="Infrastructure">Infrastructure</option>
-                    <option value="Utility">Utility</option>
-                    <option value="Public Safety">Public Safety</option>
-                    <option value="Environment">Environment</option>
+                    {OFFICER_DEPARTMENTS.map((department) => (
+                      <option key={department} value={department}>{department}</option>
+                    ))}
                   </select>
                   {formData.role === 'officer' && (
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

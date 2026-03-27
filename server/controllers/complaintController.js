@@ -1,6 +1,7 @@
 const Complaint = require("../models/Complaint");
 const spamCheck = require("../services/spamCheck");
 const { processComplaintWithAI, getCategoryFromAI, checkAIServerHealth } = require("../services/aiOrchestrator");
+const { uploadComplaintImage } = require("../services/cloudinaryService");
 const { generateTicketId } = require("../utils/generateTicketId");
 
 // Map AI department names to standardized departments
@@ -16,9 +17,104 @@ const mapDepartment = (aiDepartment) => {
   return departmentMap[aiDepartment] || aiDepartment || "General";
 };
 
+const safeJsonParse = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/, "");
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+};
+
+const extractProblemDefinition = (analysisObject = {}) => {
+  const directKey = Object.keys(analysisObject).find((key) => /problem_definition/i.test(key));
+  return directKey ? analysisObject[directKey] : null;
+};
+
+const normalizeActionPlan = (actionPlan) => {
+  if (!actionPlan) {
+    return { actionPlanText: null, actionPlanSteps: [] };
+  }
+
+  if (typeof actionPlan === "string") {
+    return {
+      actionPlanText: actionPlan,
+      actionPlanSteps: []
+    };
+  }
+
+  if (typeof actionPlan === "object") {
+    const actionPlanSteps = Object.entries(actionPlan).map(([label, detail]) => ({
+      label,
+      detail: typeof detail === "string" ? detail : JSON.stringify(detail)
+    }));
+
+    return {
+      actionPlanText: actionPlanSteps.map((step) => `${step.label}: ${step.detail}`).join("\n"),
+      actionPlanSteps
+    };
+  }
+
+  return { actionPlanText: null, actionPlanSteps: [] };
+};
+
+const buildAiSummary = (aiData = {}) => {
+  const parsedRawAnalysis = safeJsonParse(aiData.raw_analysis);
+  const analysisSource = parsedRawAnalysis && typeof parsedRawAnalysis === "object" ? parsedRawAnalysis : {};
+  const normalizedActionPlan = normalizeActionPlan(analysisSource.Action_Plan || aiData.action_plan);
+
+  return {
+    problemDefinition: extractProblemDefinition(analysisSource),
+    severity: analysisSource.Severity || aiData.final_priority || null,
+    reason: analysisSource.Reason || null,
+    conclusion: analysisSource.Conclusion || null,
+    actionPlanText: normalizedActionPlan.actionPlanText,
+    actionPlanSteps: normalizedActionPlan.actionPlanSteps
+  };
+};
+
+const sanitizeLocation = (location) => {
+  if (!location || typeof location !== "object") {
+    return null;
+  }
+
+  const latitude = Number(location.latitude);
+  const longitude = Number(location.longitude);
+  const accuracy = location.accuracy !== undefined ? Number(location.accuracy) : null;
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return {
+    latitude,
+    longitude,
+    accuracy: Number.isFinite(accuracy) ? accuracy : null,
+    label: typeof location.label === "string" ? location.label.slice(0, 200) : null,
+    source: typeof location.source === "string" ? location.source.slice(0, 50) : "citizen-device",
+    capturedAt: location.capturedAt ? new Date(location.capturedAt) : new Date(),
+    mapUrl:
+      typeof location.mapUrl === "string"
+        ? location.mapUrl.slice(0, 500)
+        : `https://maps.google.com/?q=${latitude},${longitude}`
+  };
+};
+
 exports.createComplaint = async (req, res) => {
   try {
     const { text, image } = req.body;
+    const location = sanitizeLocation(req.body.location);
+    const locationContext = location
+      ? `${location.label || `${location.latitude}, ${location.longitude}`} | Accuracy: ${location.accuracy || "unknown"} meters`
+      : "";
 
     // Validation
     if (!text || !image) {
@@ -52,7 +148,7 @@ exports.createComplaint = async (req, res) => {
     const aiResponse = await processComplaintWithAI(
       text,
       imageBase64,
-      req.body.location || "",
+      locationContext,
       new Date().toISOString()
     );
 
@@ -62,6 +158,8 @@ exports.createComplaint = async (req, res) => {
     let actionPlan = "Pending assessment";
     let ticketId = generateTicketId();
     let auditorLog = "Pending";
+    let uploadedImage = null;
+    let aiSummary = buildAiSummary();
 
     if (aiResponse.success && aiResponse.data) {
       department = mapDepartment(aiResponse.data.final_department || "General");
@@ -84,20 +182,26 @@ exports.createComplaint = async (req, res) => {
       
       ticketId = aiResponse.data.ticket_id || ticketId;
       auditorLog = aiResponse.data.auditor_log || "Pending";
+      aiSummary = buildAiSummary(aiResponse.data);
     }
+
+    uploadedImage = await uploadComplaintImage(image, ticketId);
 
     const complaint = await Complaint.create({
       user: userId,
       text,
-      image: imageBase64.substring(0, 1000000), // Limit image size in DB (approx 1MB)
+      image: uploadedImage.url,
+      imagePublicId: uploadedImage.publicId,
       ticket_id: ticketId,
       department,
+      location,
       priority,
       action_plan: actionPlan,
       auditor_log: auditorLog,
       ai_analysis: aiResponse.data?.raw_analysis || null,
       ai_message_history: aiResponse.data?.message_history || [],
       ai_processed: aiResponse.success,
+      ai_summary: aiSummary,
       status: "pending",
       deadline: aiResponse.data?.deadline || new Date()
     });

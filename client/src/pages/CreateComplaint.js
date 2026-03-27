@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { complaintAPI } from '../services/api';
+import React, { useState } from 'react';
+import { complaintAPI, locationAPI } from '../services/api';
 
 const CreateComplaint = () => {
   const [formData, setFormData] = useState({
     text: '',
     image: '',
+    location: null,
   });
   const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const { user } = useAuth();
+  const [locationError, setLocationError] = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -52,6 +53,44 @@ const CreateComplaint = () => {
     }
   };
 
+  const handleAcquireLocation = async () => {
+    setLocationError('');
+
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported in this browser.');
+      return;
+    }
+
+    setLocationLoading(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude, accuracy } = position.coords;
+          const { data } = await locationAPI.resolveLocation({ latitude, longitude, accuracy });
+
+          setFormData((prev) => ({
+            ...prev,
+            location: data.location,
+          }));
+        } catch (err) {
+          setLocationError(err.response?.data?.msg || 'Failed to save location');
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (geoError) => {
+        setLocationError(geoError.message || 'Unable to acquire location');
+        setLocationLoading(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -71,7 +110,8 @@ const CreateComplaint = () => {
     try {
       await complaintAPI.createComplaint(formData);
       setSuccess('✅ Complaint created successfully! Your ticket ID will be sent shortly.');
-      setFormData({ text: '', image: '' });
+      setFormData({ text: '', image: '', location: null });
+      setLocationError('');
       setTimeout(() => window.location.href = '/complaints', 2000);
     } catch (err) {
       setError(err.response?.data?.msg || 'Failed to create complaint');
@@ -146,6 +186,34 @@ const CreateComplaint = () => {
                 ) : (
                   <div className="mt-3 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-4 text-sm text-gray-600 dark:text-gray-300">
                     No photo selected yet.
+                  </div>
+                )}
+              </div>
+
+              <div className="form-group mb-0">
+                <label>Complaint Location</label>
+                <button
+                  type="button"
+                  className="btn btn-primary w-full"
+                  onClick={handleAcquireLocation}
+                  disabled={locationLoading}
+                >
+                  {locationLoading ? 'Acquiring location...' : 'Acquire current location'}
+                </button>
+
+                {locationError && (
+                  <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200">
+                    {locationError}
+                  </div>
+                )}
+
+                {formData.location && (
+                  <div className="mt-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-900/30 p-4 text-sm text-gray-700 dark:text-gray-200">
+                    <div className="font-semibold text-gray-900 dark:text-white">Location captured</div>
+                    <div className="mt-1">{formData.location.label}</div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Accuracy: {formData.location.accuracy ? `${Math.round(formData.location.accuracy)} meters` : 'Unknown'}
+                    </div>
                   </div>
                 )}
               </div>

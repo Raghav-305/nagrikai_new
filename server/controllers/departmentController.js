@@ -20,6 +20,15 @@ const getDepartmentVariants = (dept) => {
   return variants;
 };
 
+const complaintBelongsToOfficerDepartment = (complaintDepartment, officerDepartment) => {
+  if (!complaintDepartment || !officerDepartment) {
+    return false;
+  }
+
+  const allowedDepartments = getDepartmentVariants(officerDepartment);
+  return allowedDepartments.includes(complaintDepartment);
+};
+
 exports.getDepartmentComplaints = async (req, res) => {
   try {
     const { status, priority, page = 1, limit = 10 } = req.query;
@@ -37,7 +46,10 @@ exports.getDepartmentComplaints = async (req, res) => {
     if (priority) filter.priority = priority;
 
     // Log for debugging
-    console.log(`[${req.user.role}] ${req.user.email} fetching complaints for department:`, req.user.department);
+    console.log(
+      `[${req.user.role}] ${req.user.email || req.user.id || "unknown-user"} fetching complaints for department:`,
+      req.user.department
+    );
 
     const skip = (page - 1) * limit;
 
@@ -77,7 +89,7 @@ exports.updateComplaintStatus = async (req, res) => {
       return res.status(404).json({ msg: "Complaint not found" });
     }
 
-    if (complaint.department !== req.user.department) {
+    if (!complaintBelongsToOfficerDepartment(complaint.department, req.user.department)) {
       return res.status(403).json({ msg: "Not authorized to update this complaint" });
     }
 
@@ -125,7 +137,7 @@ exports.assignComplaint = async (req, res) => {
       return res.status(404).json({ msg: "Complaint not found" });
     }
 
-    if (complaint.department !== req.user.department) {
+    if (!complaintBelongsToOfficerDepartment(complaint.department, req.user.department)) {
       return res.status(403).json({ msg: "Not authorized" });
     }
 
