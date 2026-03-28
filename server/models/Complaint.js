@@ -84,24 +84,6 @@ const complaintSchema = new mongoose.Schema({
     default: false,
     description: "Whether complaint was processed by AI orchestrator"
   },
-  ai_summary: {
-    problemDefinition: { type: String, default: null },
-    severity: { type: String, default: null },
-    reason: { type: String, default: null },
-    conclusion: { type: String, default: null },
-    actionPlanText: { type: String, default: null },
-    actionPlanSteps: {
-      type: [{
-        label: String,
-        detail: String
-      }],
-      default: []
-    }
-  },
-  ai_ticket_history: {
-    type: [mongoose.Schema.Types.Mixed],
-    default: []
-  },
   deadline: {
     type: String,
     default: "3 days",

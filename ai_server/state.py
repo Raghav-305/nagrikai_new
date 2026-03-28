@@ -25,9 +25,3 @@ class CRMState(TypedDict):
     # quality control and compliance check output
     auditor_compliance_log: str
     auditor_feedback: str
-
-    # response from crew
-    latest_human_update: str
-
-    # THE PERMANENT LEDGER (The Timeline)
-    ticket_history: Annotated[List[Dict[str, Any]], operator.add]

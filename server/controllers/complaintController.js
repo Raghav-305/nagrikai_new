@@ -1,7 +1,6 @@
 const Complaint = require("../models/Complaint");
 const spamCheck = require("../services/spamCheck");
-const { processComplaintWithAI } = require("../services/aiOrchestrator");
-const { uploadComplaintImage } = require("../services/cloudinaryService");
+const { processComplaintWithAI, getCategoryFromAI, checkAIServerHealth } = require("../services/aiOrchestrator");
 const { generateTicketId } = require("../utils/generateTicketId");
 
 // Map AI department names to standardized departments
@@ -15,80 +14,6 @@ const departmentMap = {
 // Function to map AI department to standard department
 const mapDepartment = (aiDepartment) => {
   return departmentMap[aiDepartment] || aiDepartment || "General";
-};
-
-const extractProblemDefinition = (analysisObject = {}) => {
-  const directKey = Object.keys(analysisObject).find((key) => /problem_definition/i.test(key));
-  return directKey ? analysisObject[directKey] : null;
-};
-
-const normalizeActionPlan = (actionPlan) => {
-  if (!actionPlan) {
-    return { actionPlanText: null, actionPlanSteps: [] };
-  }
-
-  if (typeof actionPlan === "string") {
-    return {
-      actionPlanText: actionPlan,
-      actionPlanSteps: []
-    };
-  }
-
-  if (typeof actionPlan === "object") {
-    const actionPlanSteps = Object.entries(actionPlan).map(([label, detail]) => ({
-      label,
-      detail: typeof detail === "string" ? detail : JSON.stringify(detail)
-    }));
-
-    return {
-      actionPlanText: actionPlanSteps.map((step) => `${step.label}: ${step.detail}`).join("\n"),
-      actionPlanSteps
-    };
-  }
-
-  return { actionPlanText: null, actionPlanSteps: [] };
-};
-
-const buildAiSummary = (aiData = {}) => {
-  const analysisSource =
-    aiData.ai_analysis && typeof aiData.ai_analysis === "object" ? aiData.ai_analysis : {};
-  const normalizedActionPlan = normalizeActionPlan(analysisSource.Action_Plan || aiData.action_plan);
-
-  return {
-    problemDefinition: extractProblemDefinition(analysisSource),
-    severity: analysisSource.Severity || aiData.priority || null,
-    reason: analysisSource.Reason || null,
-    conclusion: analysisSource.Conclusion || null,
-    actionPlanText: normalizedActionPlan.actionPlanText,
-    actionPlanSteps: normalizedActionPlan.actionPlanSteps
-  };
-};
-
-const sanitizeLocation = (location) => {
-  if (!location || typeof location !== "object") {
-    return null;
-  }
-
-  const latitude = Number(location.latitude);
-  const longitude = Number(location.longitude);
-  const accuracy = location.accuracy !== undefined ? Number(location.accuracy) : null;
-
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return null;
-  }
-
-  return {
-    latitude,
-    longitude,
-    accuracy: Number.isFinite(accuracy) ? accuracy : null,
-    label: typeof location.label === "string" ? location.label.slice(0, 200) : null,
-    source: typeof location.source === "string" ? location.source.slice(0, 50) : "citizen-device",
-    capturedAt: location.capturedAt ? new Date(location.capturedAt) : new Date(),
-    mapUrl:
-      typeof location.mapUrl === "string"
-        ? location.mapUrl.slice(0, 500)
-        : `https://maps.google.com/?q=${latitude},${longitude}`
-  };
 };
 
 exports.createComplaint = async (req, res) => {
@@ -141,13 +66,6 @@ exports.createComplaint = async (req, res) => {
     let actionPlan = "Pending assessment";
     let ticketId = generateTicketId();
     let auditorLog = "Pending";
-    let uploadedImage = null;
-    let aiSummary = buildAiSummary();
-    let aiComplaintId = null;
-    let aiMessageHistory = [];
-    let aiAnalysis = null;
-    let aiTicketHistory = [];
-    let aiStatus = "AWAITING_FIELD_CREW";
 
     if (aiResponse.success && aiResponse.data) {
       department = mapDepartment(aiResponse.data.department_assigned || "General");
@@ -165,14 +83,8 @@ exports.createComplaint = async (req, res) => {
         actionPlan = aiResponse.data.action_plan || "Pending assessment";
       }
       
-      ticketId = aiResponse.data.current_ticket_id || ticketId;
-      auditorLog = aiResponse.data.status || "AWAITING_FIELD_CREW";
-      aiSummary = buildAiSummary(aiResponse.data);
-      aiComplaintId = aiResponse.data.complaint_id || null;
-      aiMessageHistory = aiResponse.data.ai_message_log || [];
-      aiAnalysis = aiResponse.data.ai_analysis || null;
-      aiTicketHistory = aiResponse.data.full_ticket_history || [];
-      aiStatus = aiResponse.data.status || aiStatus;
+      ticketId = aiResponse.data.ticket_id || ticketId;
+      auditorLog = aiResponse.data.auditor_log || "Pending";
     }
 
     uploadedImage = await uploadComplaintImage(image, ticketId);
@@ -192,8 +104,6 @@ exports.createComplaint = async (req, res) => {
       ai_analysis: aiAnalysis,
       ai_message_history: aiMessageHistory,
       ai_processed: aiResponse.success,
-      ai_summary: aiSummary,
-      ai_ticket_history: aiTicketHistory,
       status: "pending",
       deadline: aiResponse.data?.deadline || new Date()
     });

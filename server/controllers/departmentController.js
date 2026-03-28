@@ -21,37 +21,6 @@ const getDepartmentVariants = (dept) => {
   return variants;
 };
 
-const complaintBelongsToOfficerDepartment = (complaintDepartment, officerDepartment) => {
-  if (!complaintDepartment || !officerDepartment) {
-    return false;
-  }
-
-  const allowedDepartments = getDepartmentVariants(officerDepartment);
-  return allowedDepartments.includes(complaintDepartment);
-};
-
-const normalizePriority = (priorityValue) => {
-  const normalized = String(priorityValue || "medium").split("(")[0].trim().toLowerCase();
-  return ["low", "medium", "high", "critical"].includes(normalized) ? normalized : "medium";
-};
-
-const buildCrewNote = (status, note, department) => {
-  const trimmedNote = typeof note === "string" ? note.trim() : "";
-  if (trimmedNote) {
-    return trimmedNote;
-  }
-
-  if (status === "resolved") {
-    return `${department || "Department"} crew marked this task as completed and the issue appears fully resolved.`;
-  }
-
-  if (status === "in-progress") {
-    return `${department || "Department"} crew started work and provided a progress update.`;
-  }
-
-  return "";
-};
-
 exports.getDepartmentComplaints = async (req, res) => {
   try {
     const { status, priority, page = 1, limit = 10 } = req.query;

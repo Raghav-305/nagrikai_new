@@ -505,7 +505,5 @@ workflow.add_conditional_edges(
     },
 )
 
-conn = sqlite3.connect("prototype_memory.sqlite", check_same_thread=False)
-memory = SqliteSaver(conn)
-
-crm_app = workflow.compile(checkpointer=memory)
+# Compile the expanded multi-agent graph
+crm_app = workflow.compile()

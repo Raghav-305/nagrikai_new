@@ -66,44 +66,16 @@ def process_ticket(request: ComplaintRequest, token: None = Depends(verify_token
     serializable_messages = messages_to_dict(final_state.get("messages", []))
 
     return {
-        "success": True,
-        "status": "AWAITING_FIELD_CREW",
-        "complaint_id": final_state.get("complaint_id"),
-        "current_ticket_id": final_state.get("current_ticket_id"),
-        "department_assigned": final_state.get("department_assigned"),
-        "priority": final_state.get("priority"),
-        "deadline": final_state.get("deadline"),
-        "action_plan": final_state.get("action_plan"),
-        "ai_analysis": final_state.get("ai_analysis"),
-        "full_ticket_history": final_state.get("ticket_history"),
-        "ai_message_log": serializable_messages,
+        "ticket_id": final_state.get("ticket_id", "TICKET-GEN-PENDING"),
+        "final_department": final_state.get("final_department_assigned", "Triage Required"),
+        "final_priority": final_state.get("final_priority", "Standard Triage"),
+        "deadline": final_state.get("deadline", "3 days"),
+        "action_plan": final_state.get("action_taken", "Internal work order pending detailed assessment."),
+        "auditor_log": final_state.get("auditor_compliance_log", "Quality control check pending."),
+        "raw_analysis": final_state.get("thought_process", "No analysis generated."),
+        "message_history": message_log
     }
 
-
-@app.post("/api/human-update")
-def process_human_update(request: HumanUpdateRequest, token: None = Depends(verify_token)):
-    """Receives a note from a field crew, wakes up the AI, and generates the next ticket."""
-    config = {"configurable": {"thread_id": request.complaint_id}}
-    update_state = {"latest_human_update": request.crew_note}
-
-    updated_state = crm_app.invoke(update_state, config=config)
-    serializable_messages = messages_to_dict(updated_state.get("messages", []))
-
-    if updated_state.get("next_node") == "END":
-        current_status = "FULLY_RESOLVED"
-    else:
-        current_status = "AWAITING_FIELD_CREW"
-
-    return {
-        "success": True,
-        "status": current_status,
-        "complaint_id": updated_state.get("complaint_id"),
-        "current_ticket_id": updated_state.get("current_ticket_id"),
-        "new_department_assigned": updated_state.get("department_assigned"),
-        "priority": updated_state.get("priority"),
-        "deadline": updated_state.get("deadline"),
-        "revised_action_plan": updated_state.get("action_plan"),
-        "ai_analysis": updated_state.get("ai_analysis"),
-        "full_ticket_history": updated_state.get("ticket_history"),
-        "ai_message_log": serializable_messages,
-    }
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
