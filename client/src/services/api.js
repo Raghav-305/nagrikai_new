@@ -45,10 +45,15 @@ export const departmentAPI = {
   assignComplaint: (id, data) => API.put(`/department/complaint/${id}/assign`, data),
 };
 
+export const locationAPI = {
+  resolveLocation: (data) => API.post('/location/resolve', data),
+};
+
 // Admin endpoints
 export const adminAPI = {
   getAllUsers: () => API.get('/admin/users'),
   getDashboardStats: () => API.get('/admin/stats'),
+  getAllComplaints: (params) => API.get('/admin/complaints', { params }),
   deleteUser: (id) => API.delete(`/admin/users/${id}`),
   updateUserRole: (id, data) => API.put(`/admin/users/${id}/role`, data),
 };

@@ -1,6 +1,7 @@
 const Complaint = require("../models/Complaint");
 const spamCheck = require("../services/spamCheck");
-const { processComplaintWithAI, getCategoryFromAI, checkAIServerHealth } = require("../services/aiOrchestrator");
+const { processComplaintWithAI } = require("../services/aiOrchestrator");
+const { uploadComplaintImage } = require("../services/cloudinaryService");
 const { generateTicketId } = require("../utils/generateTicketId");
 
 // Map AI department names to standardized departments
@@ -16,9 +17,87 @@ const mapDepartment = (aiDepartment) => {
   return departmentMap[aiDepartment] || aiDepartment || "General";
 };
 
+const extractProblemDefinition = (analysisObject = {}) => {
+  const directKey = Object.keys(analysisObject).find((key) => /problem_definition/i.test(key));
+  return directKey ? analysisObject[directKey] : null;
+};
+
+const normalizeActionPlan = (actionPlan) => {
+  if (!actionPlan) {
+    return { actionPlanText: null, actionPlanSteps: [] };
+  }
+
+  if (typeof actionPlan === "string") {
+    return {
+      actionPlanText: actionPlan,
+      actionPlanSteps: []
+    };
+  }
+
+  if (typeof actionPlan === "object") {
+    const actionPlanSteps = Object.entries(actionPlan).map(([label, detail]) => ({
+      label,
+      detail: typeof detail === "string" ? detail : JSON.stringify(detail)
+    }));
+
+    return {
+      actionPlanText: actionPlanSteps.map((step) => `${step.label}: ${step.detail}`).join("\n"),
+      actionPlanSteps
+    };
+  }
+
+  return { actionPlanText: null, actionPlanSteps: [] };
+};
+
+const buildAiSummary = (aiData = {}) => {
+  const analysisSource =
+    aiData.ai_analysis && typeof aiData.ai_analysis === "object" ? aiData.ai_analysis : {};
+  const normalizedActionPlan = normalizeActionPlan(analysisSource.Action_Plan || aiData.action_plan);
+
+  return {
+    problemDefinition: extractProblemDefinition(analysisSource),
+    severity: analysisSource.Severity || aiData.priority || null,
+    reason: analysisSource.Reason || null,
+    conclusion: analysisSource.Conclusion || null,
+    actionPlanText: normalizedActionPlan.actionPlanText,
+    actionPlanSteps: normalizedActionPlan.actionPlanSteps
+  };
+};
+
+const sanitizeLocation = (location) => {
+  if (!location || typeof location !== "object") {
+    return null;
+  }
+
+  const latitude = Number(location.latitude);
+  const longitude = Number(location.longitude);
+  const accuracy = location.accuracy !== undefined ? Number(location.accuracy) : null;
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return {
+    latitude,
+    longitude,
+    accuracy: Number.isFinite(accuracy) ? accuracy : null,
+    label: typeof location.label === "string" ? location.label.slice(0, 200) : null,
+    source: typeof location.source === "string" ? location.source.slice(0, 50) : "citizen-device",
+    capturedAt: location.capturedAt ? new Date(location.capturedAt) : new Date(),
+    mapUrl:
+      typeof location.mapUrl === "string"
+        ? location.mapUrl.slice(0, 500)
+        : `https://maps.google.com/?q=${latitude},${longitude}`
+  };
+};
+
 exports.createComplaint = async (req, res) => {
   try {
     const { text, image } = req.body;
+    const location = sanitizeLocation(req.body.location);
+    const locationContext = location
+      ? `${location.label || `${location.latitude}, ${location.longitude}`} | Accuracy: ${location.accuracy || "unknown"} meters`
+      : "";
 
     // Validation
     if (!text || !image) {
@@ -52,7 +131,7 @@ exports.createComplaint = async (req, res) => {
     const aiResponse = await processComplaintWithAI(
       text,
       imageBase64,
-      req.body.location || "",
+      locationContext,
       new Date().toISOString()
     );
 
@@ -62,14 +141,18 @@ exports.createComplaint = async (req, res) => {
     let actionPlan = "Pending assessment";
     let ticketId = generateTicketId();
     let auditorLog = "Pending";
+    let uploadedImage = null;
+    let aiSummary = buildAiSummary();
+    let aiComplaintId = null;
+    let aiMessageHistory = [];
+    let aiAnalysis = null;
+    let aiTicketHistory = [];
+    let aiStatus = "AWAITING_FIELD_CREW";
 
     if (aiResponse.success && aiResponse.data) {
-      department = mapDepartment(aiResponse.data.final_department || "General");
-      // Extract priority from AI response and convert to lowercase
-      let aiPriority = aiResponse.data.final_priority || "Medium";
-      // Remove any extra text like "(via Text Tool)" and lowercase
+      department = mapDepartment(aiResponse.data.department_assigned || "General");
+      let aiPriority = aiResponse.data.priority || "Medium";
       priority = aiPriority.split('(')[0].trim().toLowerCase();
-      // Ensure it's a valid enum value
       const validPriorities = ['low', 'medium', 'high', 'critical'];
       if (!validPriorities.includes(priority)) {
         priority = 'medium';
@@ -82,22 +165,35 @@ exports.createComplaint = async (req, res) => {
         actionPlan = aiResponse.data.action_plan || "Pending assessment";
       }
       
-      ticketId = aiResponse.data.ticket_id || ticketId;
-      auditorLog = aiResponse.data.auditor_log || "Pending";
+      ticketId = aiResponse.data.current_ticket_id || ticketId;
+      auditorLog = aiResponse.data.status || "AWAITING_FIELD_CREW";
+      aiSummary = buildAiSummary(aiResponse.data);
+      aiComplaintId = aiResponse.data.complaint_id || null;
+      aiMessageHistory = aiResponse.data.ai_message_log || [];
+      aiAnalysis = aiResponse.data.ai_analysis || null;
+      aiTicketHistory = aiResponse.data.full_ticket_history || [];
+      aiStatus = aiResponse.data.status || aiStatus;
     }
+
+    uploadedImage = await uploadComplaintImage(image, ticketId);
 
     const complaint = await Complaint.create({
       user: userId,
       text,
-      image: imageBase64.substring(0, 1000000), // Limit image size in DB (approx 1MB)
+      image: uploadedImage.url,
+      imagePublicId: uploadedImage.publicId,
       ticket_id: ticketId,
+      ai_complaint_id: aiComplaintId,
       department,
+      location,
       priority,
       action_plan: actionPlan,
       auditor_log: auditorLog,
-      ai_analysis: aiResponse.data?.raw_analysis || null,
-      ai_message_history: aiResponse.data?.message_history || [],
+      ai_analysis: aiAnalysis,
+      ai_message_history: aiMessageHistory,
       ai_processed: aiResponse.success,
+      ai_summary: aiSummary,
+      ai_ticket_history: aiTicketHistory,
       status: "pending",
       deadline: aiResponse.data?.deadline || new Date()
     });
@@ -108,10 +204,12 @@ exports.createComplaint = async (req, res) => {
       complaint,
       ai_info: {
         processed: aiResponse.success,
+        complaint_id: aiComplaintId,
         ticket_id: ticketId,
         department,
         priority,
-        deadline: aiResponse.data?.deadline || "3 days"
+        deadline: aiResponse.data?.deadline || "3 days",
+        status: aiStatus
       }
     });
 

@@ -2,10 +2,29 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+const allowedDepartments = {
+  infrastructure: "Infrastructure",
+  utility: "Utility",
+  "public safety": "Public Safety",
+  environment: "Environment",
+};
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "Lokesh123@gmail.com";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Lokesh@123";
+
+const normalizeDepartment = (department) => {
+  if (typeof department !== "string") {
+    return null;
+  }
+
+  const normalizedKey = department.trim().toLowerCase().replace(/\s+/g, " ");
+  return allowedDepartments[normalizedKey] || null;
+};
+
 const generateToken = (user) => {
   return jwt.sign(
     {
       id: user._id,
+      email: user.email,
       role: user.role,
       department: user.department
     },
@@ -17,6 +36,7 @@ const generateToken = (user) => {
 exports.register = async (req, res) => {
   try {
     const { name, email, password, role, department } = req.body;
+    const normalizedDepartment = role === "officer" ? normalizeDepartment(department) : null;
 
     // Validation
     if (!name || !email || !password) {
@@ -38,6 +58,10 @@ exports.register = async (req, res) => {
       return res.status(400).json({ msg: "Invalid role" });
     }
 
+    if (role === "officer" && !normalizedDepartment) {
+      return res.status(400).json({ msg: "Valid department is required for officers" });
+    }
+
     const hashed = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -45,13 +69,13 @@ exports.register = async (req, res) => {
       email: email.toLowerCase(),
       password: hashed,
       role: role || "citizen",
-      department: role === "officer" ? department : null
+      department: normalizedDepartment
     });
 
     res.status(201).json({
       success: true,
       token: generateToken(user),
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, department: user.department }
     });
   } catch (err) {
     console.error("Register error:", err);
@@ -66,6 +90,28 @@ exports.login = async (req, res) => {
     // Validation
     if (!email || !password) {
       return res.status(400).json({ msg: "Email and password are required" });
+    }
+
+    if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+      const adminUser = {
+        _id: "hardcoded-admin",
+        name: "Lokesh Admin",
+        email: ADMIN_EMAIL,
+        role: "admin",
+        department: null
+      };
+
+      return res.json({
+        success: true,
+        token: generateToken(adminUser),
+        user: {
+          id: adminUser._id,
+          name: adminUser.name,
+          email: adminUser.email,
+          role: adminUser.role,
+          department: adminUser.department
+        }
+      });
     }
 
     const user = await User.findOne({ email: email.toLowerCase() }).select("+password");

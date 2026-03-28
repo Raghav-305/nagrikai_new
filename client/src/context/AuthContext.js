@@ -25,11 +25,11 @@ export const AuthProvider = ({ children }) => {
     else localStorage.removeItem('user');
   }, [user]);
 
-  const register = async (name, email, password, role) => {
+  const register = async (name, email, password, role, department) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiClient.register({ name, email, password, role });
+      const response = await apiClient.register({ name, email, password, role, department });
       setToken(response.token);
       setUser(response.user);
       return response;

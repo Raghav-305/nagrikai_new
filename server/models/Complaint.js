@@ -15,14 +15,32 @@ const complaintSchema = new mongoose.Schema({
     type: String,
     required: [true, "Image is required"]
   },
+  imagePublicId: {
+    type: String,
+    default: null
+  },
   ticket_id: {
     type: String,
     unique: true,
     required: [true, "Ticket ID is required"]
   },
+  ai_complaint_id: {
+    type: String,
+    default: null,
+    index: true
+  },
   department: {
     type: String,
     required: [true, "Department is required"]
+  },
+  location: {
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    accuracy: { type: Number, default: null },
+    label: { type: String, default: null },
+    source: { type: String, default: null },
+    capturedAt: { type: Date, default: null },
+    mapUrl: { type: String, default: null }
   },
   priority: {
     type: String,
@@ -52,12 +70,12 @@ const complaintSchema = new mongoose.Schema({
   },
   // AI Orchestrator fields
   ai_analysis: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed,
     default: null,
-    description: "Raw AI thought process and analysis"
+    description: "Structured AI analysis payload"
   },
   ai_message_history: {
-    type: [String],
+    type: [mongoose.Schema.Types.Mixed],
     default: [],
     description: "Full message history from AI agents"
   },
@@ -65,6 +83,24 @@ const complaintSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
     description: "Whether complaint was processed by AI orchestrator"
+  },
+  ai_summary: {
+    problemDefinition: { type: String, default: null },
+    severity: { type: String, default: null },
+    reason: { type: String, default: null },
+    conclusion: { type: String, default: null },
+    actionPlanText: { type: String, default: null },
+    actionPlanSteps: {
+      type: [{
+        label: String,
+        detail: String
+      }],
+      default: []
+    }
+  },
+  ai_ticket_history: {
+    type: [mongoose.Schema.Types.Mixed],
+    default: []
   },
   deadline: {
     type: String,

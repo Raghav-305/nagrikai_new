@@ -1,6 +1,8 @@
 fastapi
 uvicorn
+pydantic
+langchain-core
 langchain-groq
 langgraph
-pydantic
+langgraph-checkpoint-sqlite
 python-dotenv

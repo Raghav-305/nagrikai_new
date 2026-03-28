@@ -1,4 +1,5 @@
 const Complaint = require("../models/Complaint");
+const { processHumanUpdateWithAI } = require("../services/aiOrchestrator");
 
 // Map AI department names to standard departments
 const departmentMap = {
@@ -20,6 +21,37 @@ const getDepartmentVariants = (dept) => {
   return variants;
 };
 
+const complaintBelongsToOfficerDepartment = (complaintDepartment, officerDepartment) => {
+  if (!complaintDepartment || !officerDepartment) {
+    return false;
+  }
+
+  const allowedDepartments = getDepartmentVariants(officerDepartment);
+  return allowedDepartments.includes(complaintDepartment);
+};
+
+const normalizePriority = (priorityValue) => {
+  const normalized = String(priorityValue || "medium").split("(")[0].trim().toLowerCase();
+  return ["low", "medium", "high", "critical"].includes(normalized) ? normalized : "medium";
+};
+
+const buildCrewNote = (status, note, department) => {
+  const trimmedNote = typeof note === "string" ? note.trim() : "";
+  if (trimmedNote) {
+    return trimmedNote;
+  }
+
+  if (status === "resolved") {
+    return `${department || "Department"} crew marked this task as completed and the issue appears fully resolved.`;
+  }
+
+  if (status === "in-progress") {
+    return `${department || "Department"} crew started work and provided a progress update.`;
+  }
+
+  return "";
+};
+
 exports.getDepartmentComplaints = async (req, res) => {
   try {
     const { status, priority, page = 1, limit = 10 } = req.query;
@@ -37,7 +69,10 @@ exports.getDepartmentComplaints = async (req, res) => {
     if (priority) filter.priority = priority;
 
     // Log for debugging
-    console.log(`[${req.user.role}] ${req.user.email} fetching complaints for department:`, req.user.department);
+    console.log(
+      `[${req.user.role}] ${req.user.email || req.user.id || "unknown-user"} fetching complaints for department:`,
+      req.user.department
+    );
 
     const skip = (page - 1) * limit;
 
@@ -77,7 +112,7 @@ exports.updateComplaintStatus = async (req, res) => {
       return res.status(404).json({ msg: "Complaint not found" });
     }
 
-    if (complaint.department !== req.user.department) {
+    if (!complaintBelongsToOfficerDepartment(complaint.department, req.user.department)) {
       return res.status(403).json({ msg: "Not authorized to update this complaint" });
     }
 
@@ -98,18 +133,65 @@ exports.updateComplaintStatus = async (req, res) => {
       complaint.resolvedAt = Date.now();
     }
 
+    const crewNote = buildCrewNote(status, note, complaint.department);
+    let aiUpdate = null;
+
+    if (complaint.ai_complaint_id && crewNote) {
+      aiUpdate = await processHumanUpdateWithAI(complaint.ai_complaint_id, crewNote);
+    }
+
+    if (aiUpdate?.success && aiUpdate.data) {
+      const reroutedDepartment = aiUpdate.data.new_department_assigned;
+
+      complaint.ticket_id = aiUpdate.data.current_ticket_id || complaint.ticket_id;
+      complaint.auditor_log = aiUpdate.data.status || complaint.auditor_log;
+      complaint.ai_analysis = aiUpdate.data.ai_analysis || complaint.ai_analysis;
+      complaint.ai_message_history = aiUpdate.data.ai_message_log || complaint.ai_message_history;
+      complaint.ai_ticket_history = aiUpdate.data.full_ticket_history || complaint.ai_ticket_history;
+      complaint.deadline = aiUpdate.data.deadline || complaint.deadline;
+
+      if (reroutedDepartment) {
+        complaint.department = mapDepartmentName(reroutedDepartment);
+      }
+
+      if (aiUpdate.data.priority) {
+        complaint.priority = normalizePriority(aiUpdate.data.priority);
+      }
+
+      if (aiUpdate.data.revised_action_plan) {
+        complaint.action_plan =
+          typeof aiUpdate.data.revised_action_plan === "object"
+            ? JSON.stringify(aiUpdate.data.revised_action_plan)
+            : aiUpdate.data.revised_action_plan;
+      }
+
+      if (aiUpdate.data.status === "FULLY_RESOLVED") {
+        complaint.status = "resolved";
+        complaint.resolvedAt = complaint.resolvedAt || Date.now();
+      } else if (reroutedDepartment) {
+        complaint.status = "pending";
+        complaint.assignedTo = null;
+        complaint.resolvedAt = null;
+      }
+    }
+
     await complaint.save();
 
     res.json({
       success: true,
       msg: "Complaint status updated",
-      complaint
+      complaint,
+      ai_update: aiUpdate?.data || null
     });
   } catch (err) {
     console.error("Update complaint error:", err);
     res.status(500).json({ msg: "Failed to update complaint", error: err.message });
   }
 };
+
+function mapDepartmentName(aiDepartment) {
+  return departmentMap[aiDepartment] || aiDepartment || "General";
+}
 
 exports.assignComplaint = async (req, res) => {
   try {
@@ -125,7 +207,7 @@ exports.assignComplaint = async (req, res) => {
       return res.status(404).json({ msg: "Complaint not found" });
     }
 
-    if (complaint.department !== req.user.department) {
+    if (!complaintBelongsToOfficerDepartment(complaint.department, req.user.department)) {
       return res.status(403).json({ msg: "Not authorized" });
     }
 

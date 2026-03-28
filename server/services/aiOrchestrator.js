@@ -49,6 +49,42 @@ async function processComplaintWithAI(text, image_base64 = '', location_text = '
 }
 
 /**
+ * Send a field crew note back to the AI server so it can reroute or close the complaint.
+ * @param {string} complaintId - Master AI complaint thread id
+ * @param {string} crewNote - Field crew completion/update note
+ * @returns {Promise<Object>}
+ */
+async function processHumanUpdateWithAI(complaintId, crewNote) {
+  try {
+    const response = await axios.post(
+      `${AI_SERVER_URL}/api/human-update`,
+      {
+        complaint_id: complaintId,
+        crew_note: crewNote
+      },
+      {
+        headers: {
+          'x-api-token': AI_SERVER_TOKEN,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    return {
+      success: true,
+      data: response.data
+    };
+  } catch (error) {
+    console.error('AI Human Update Error:', error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Check if AI server is healthy
  * @returns {Promise<boolean>}
  */
@@ -83,13 +119,14 @@ async function getCategoryFromAI(complaintText, image = '') {
     if (aiResponse.success && aiResponse.data) {
       return {
         success: true,
-        category: aiResponse.data.final_department,
-        priority: aiResponse.data.final_priority,
+        category: aiResponse.data.department_assigned,
+        priority: aiResponse.data.priority,
         actionPlan: aiResponse.data.action_plan,
-        ticketId: aiResponse.data.ticket_id,
+        ticketId: aiResponse.data.current_ticket_id,
+        complaintId: aiResponse.data.complaint_id,
         deadline: aiResponse.data.deadline,
-        analysis: aiResponse.data.raw_analysis,
-        messageHistory: aiResponse.data.message_history
+        analysis: aiResponse.data.ai_analysis,
+        messageHistory: aiResponse.data.ai_message_log
       };
     } else {
       // Fallback category mapping
@@ -156,6 +193,7 @@ function getDefaultCategory(text) {
 
 module.exports = {
   processComplaintWithAI,
+  processHumanUpdateWithAI,
   checkAIServerHealth,
   getCategoryFromAI,
   getDefaultCategory
