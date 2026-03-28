@@ -505,5 +505,9 @@ workflow.add_conditional_edges(
     },
 )
 
-# Compile the expanded multi-agent graph
-crm_app = workflow.compile()
+# Persist complaint threads so human updates can resume the same workflow state.
+conn = sqlite3.connect("prototype_memory.sqlite", check_same_thread=False)
+memory = SqliteSaver(conn)
+
+# Compile the expanded multi-agent graph with memory.
+crm_app = workflow.compile(checkpointer=memory)
